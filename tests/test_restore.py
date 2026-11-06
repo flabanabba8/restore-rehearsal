@@ -34,6 +34,18 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual((Path(result['restored_path']) / 'dir/file.txt').read_text(), 'data')
         self.assertTrue(self.archive.exists())
 
+    def test_recover_folders_without_claiming_success(self):
+        info = self.plugin.inspect(str(self.archive))
+        result = self.plugin.rehearse(str(self.archive), info['fingerprint'])
+        parent = self.root/'restore'
+        incomplete = parent/('a'*32); incomplete.mkdir()
+        (parent/('b'*32)).symlink_to(incomplete)
+        rows = self.plugin.list_rehearsals()['rehearsals']
+        self.assertEqual(len(rows), 2)
+        self.assertIn(result['restored_path'], [row['restored_path'] for row in rows])
+        self.assertTrue(all(row['status'] == 'unverified' for row in rows))
+        self.assertNotIn('file.txt', str(rows))
+
     def test_bad_hash_removes_partial_restore(self):
         info = self.plugin.inspect(str(self.archive))
         with self.assertRaisesRegex(ValueError, 'does not match'):

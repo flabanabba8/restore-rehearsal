@@ -4,6 +4,7 @@ from .core import Rehearsal
 
 TOOLS = {
     'restore_inspect': ('Inspect an untrusted ZIP backup and fingerprint it without extracting files.', {'archive_path': {'type': 'string'}}, ['archive_path']),
+    'restore_list_rehearsals': ('List local rehearsal folders without inspecting their contents. Folder presence does not prove a restore completed.', {}, []),
     'restore_rehearse': ('Restore an inspected ZIP into a new isolated directory and verify bytes and CRC. Optional expected_sha256 maps paths to trusted hashes; every file must match.', {'archive_path': {'type': 'string'}, 'fingerprint': {'type': 'string'}, 'expected_sha256': {'type': 'object', 'additionalProperties': {'type': 'string'}}}, ['archive_path', 'fingerprint']),
 }
 

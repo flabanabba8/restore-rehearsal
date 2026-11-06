@@ -117,3 +117,14 @@ class Rehearsal:
             raise
         return {'restored_path': str(target), 'files': len(hashes), 'directories': len(directories), 'sha256': hashes,
                 'crc_verified': True, 'trusted_hashes_verified': expected_sha256 is not None}
+
+    def list_rehearsals(self):
+        if not self.root.exists(): return {'rehearsals': [], 'notice': 'Folder presence does not prove a restore completed or remains intact.'}
+        found = []
+        for path in self.root.iterdir():
+            if len(path.name) != 32 or any(c not in '0123456789abcdef' for c in path.name): continue
+            if path.is_symlink() or not path.is_dir(): continue
+            found.append({'rehearsal_id': path.name, 'restored_path': str(path), 'status': 'unverified'})
+            if len(found) > 1000: raise ValueError('More than 1,000 rehearsal folders; narrow the workspace')
+        found.sort(key=lambda row: row['rehearsal_id'])
+        return {'rehearsals': found, 'notice': 'Folder presence does not prove a restore completed or remains intact. Inspect the files before use.'}

@@ -7,3 +7,4 @@ requires_hermes: ">=0.22.0"
 provides_tools:
   - restore_inspect
   - restore_rehearse
+  - restore_list_rehearsals
