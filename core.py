@@ -1,0 +1,119 @@
+"""Restore a ZIP to a unique sandbox and report integrity evidence."""
+import hashlib
+from pathlib import Path, PurePosixPath
+import shutil
+import stat
+import uuid
+import zipfile
+
+PRIVATE = {'.ssh', '.gnupg', '.aws', '.azure', '.codex', '.docker', '.kube', '.pki', '.config', '.hermes'}
+MAX_BYTES = 2 * 1024**3
+MAX_FILES = 10000
+
+
+def digest(path):
+    h = hashlib.sha256()
+    with path.open('rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def safe_source(value):
+    path = Path(value).expanduser()
+    if path.is_symlink() or any(x in PRIVATE for x in path.parts):
+        raise ValueError('Private paths and symlink inputs are unsupported')
+    path = path.resolve(strict=True)
+    if any(x in PRIVATE for x in path.parts) or not path.is_file():
+        raise ValueError('Choose a ZIP outside private configuration')
+    return path
+
+
+def entries(z):
+    files, directories, explicit, components, file_keys, total = [], [], set(), {}, set(), 0
+    for info in z.infolist():
+        name = info.filename
+        path = PurePosixPath(name)
+        mode = info.external_attr >> 16
+        canonical = path.as_posix()
+        if ('\\' in name or name.startswith('/') or not path.parts or
+            name != canonical + ('/' if info.is_dir() else '') or
+            any(x in ('.', '..') or ':' in x for x in path.parts) or
+            stat.S_ISLNK(mode) or (mode and stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR)) or info.flag_bits & 1 or
+            (info.is_dir() and info.file_size)):
+            raise ValueError('Unsafe path, special file, or encrypted ZIP entry')
+        key = canonical.casefold()
+        if key in explicit:
+            raise ValueError('Duplicate or case-colliding paths')
+        explicit.add(key)
+        for component in [path, *path.parents]:
+            component_name = str(component)
+            if component_name == '.': continue
+            folded = component_name.casefold()
+            if folded in components and components[folded] != component_name:
+                raise ValueError('Duplicate or case-colliding paths')
+            components[folded] = component_name
+        if len(explicit) > MAX_FILES: raise ValueError('Archive exceeds restore limits')
+        if info.is_dir():
+            directories.append(info)
+        else:
+            file_keys.add(key)
+            total += info.file_size
+            if total > MAX_BYTES: raise ValueError('Archive exceeds restore limits')
+            files.append(info)
+    if not files and not directories:
+        raise ValueError('No files or directories to restore')
+    for info in files + directories:
+        if any(str(parent).casefold() in file_keys for parent in PurePosixPath(info.filename).parents if str(parent) != '.'):
+            raise ValueError('File path collides with a parent path')
+    return files, directories, total
+
+
+class Rehearsal:
+    def __init__(self, root):
+        self.root = Path(root).resolve()
+
+    def inspect(self, archive_path):
+        path = safe_source(archive_path)
+        fingerprint = digest(path)
+        with zipfile.ZipFile(path) as z:
+            files, directories, total = entries(z)
+            result = [{'path': i.filename, 'bytes': i.file_size, 'crc32': f'{i.CRC:08x}'} for i in files]
+        if digest(path) != fingerprint:
+            raise ValueError('Archive changed while inspecting')
+        return {'fingerprint': fingerprint, 'files': result, 'directories': [i.filename for i in directories], 'total_bytes': total}
+
+    def rehearse(self, archive_path, fingerprint, expected_sha256=None):
+        path = safe_source(archive_path)
+        if digest(path) != fingerprint:
+            raise ValueError('Archive changed; inspect it again')
+        if expected_sha256 is not None and (not isinstance(expected_sha256, dict) or any(not isinstance(k, str) or not isinstance(v, str) or len(v) != 64 or any(c not in '0123456789abcdef' for c in v) for k, v in expected_sha256.items())):
+            raise ValueError('Expected hashes must be lowercase SHA-256 strings keyed by path')
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target = self.root / uuid.uuid4().hex
+        target.mkdir(mode=0o700)
+        try:
+            hashes = {}
+            with zipfile.ZipFile(path) as z:
+                files, directories, total = entries(z)
+                if shutil.disk_usage(target).free < total + 16 * 1024**2:
+                    raise ValueError('Not enough free space for restore')
+                if expected_sha256 is not None and set(expected_sha256) != {i.filename for i in files}:
+                    raise ValueError('Expected hash list must cover exactly all archive files')
+                for info in directories:
+                    (target / info.filename).mkdir(parents=True, exist_ok=True)
+                for info in files:
+                    out = target / info.filename
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    with z.open(info) as src, out.open('xb') as dst:
+                        shutil.copyfileobj(src, dst, 1024 * 1024)
+                    hashes[info.filename] = digest(out)
+                    if expected_sha256 is not None and hashes[info.filename] != expected_sha256[info.filename]:
+                        raise ValueError('Restored content does not match trusted hashes')
+            if digest(path) != fingerprint:
+                raise ValueError('Archive changed during restore')
+        except BaseException:
+            shutil.rmtree(target, ignore_errors=True)
+            raise
+        return {'restored_path': str(target), 'files': len(hashes), 'directories': len(directories), 'sha256': hashes,
+                'crc_verified': True, 'trusted_hashes_verified': expected_sha256 is not None}
