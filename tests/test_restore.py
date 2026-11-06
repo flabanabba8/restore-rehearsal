@@ -1,5 +1,6 @@
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -33,6 +34,15 @@ class RestoreTests(unittest.TestCase):
         self.assertTrue(result['trusted_hashes_verified'])
         self.assertEqual((Path(result['restored_path']) / 'dir/file.txt').read_text(), 'data')
         self.assertTrue(self.archive.exists())
+
+    def test_restored_files_are_private_under_permissive_umask(self):
+        info = self.plugin.inspect(str(self.archive))
+        previous = os.umask(0)
+        try:
+            result = self.plugin.rehearse(str(self.archive), info['fingerprint'])
+            self.assertEqual((Path(result['restored_path']) / 'dir/file.txt').stat().st_mode & 0o777, 0o600)
+        finally:
+            os.umask(previous)
 
     def test_recover_folders_without_claiming_success(self):
         info = self.plugin.inspect(str(self.archive))

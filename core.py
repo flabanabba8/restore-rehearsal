@@ -1,5 +1,6 @@
 """Restore a ZIP to a unique sandbox and report integrity evidence."""
 import hashlib
+import os
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -105,7 +106,7 @@ class Rehearsal:
                 for info in files:
                     out = target / info.filename
                     out.parent.mkdir(parents=True, exist_ok=True)
-                    with z.open(info) as src, out.open('xb') as dst:
+                    with z.open(info) as src, os.fdopen(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as dst:
                         shutil.copyfileobj(src, dst, 1024 * 1024)
                     hashes[info.filename] = digest(out)
                     if expected_sha256 is not None and hashes[info.filename] != expected_sha256[info.filename]:
