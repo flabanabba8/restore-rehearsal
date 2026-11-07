@@ -6,3 +6,4 @@
 - A synthetic local PageCast recovery reopened and exported a restored book after the permission change. No production backup was modified or tested.
 - Native Windows Python 3.14 restored a synthetic ZIP with an independently supplied matching hash. Windows ACL behavior and production backups were not tested.
 - Older restores are not retroactively chmodded. Archive completeness without an independent manifest, full Windows coverage, a reviewed demo and the full publication audit remain unverified.
+- 2026-11-07: real-input trial through Hermes's tool registry in a disposable profile. restore_inspect listed the 11 files of a real zip with sizes and CRCs and returned a fingerprint; restore_rehearse restored it to a private folder and returned per-file SHA-256 values. Found: only ZIP archives are supported (a tar.gz is refused with 'File is not a zip file') and an archive containing ../ paths is correctly refused as unsafe.
