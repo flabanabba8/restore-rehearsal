@@ -1,7 +1,12 @@
 # Restore Rehearsal
 
-Rehearse restoring an ordinary ZIP backup without overwriting live files. Inspect the archive first, then restore using the returned fingerprint. The plugin extracts into a new private directory, verifies ZIP CRCs while reading, computes SHA-256 for every restored file, and reports their paths and hashes. Supply a trusted external `expected_sha256` mapping to verify every archive file against independently recorded hashes; a partial or mismatching list fails and the incomplete restore is removed.
+Rehearse restoring an ordinary ZIP or tar (plain, gzip, bzip2 or xz) backup without overwriting live files. Inspect the archive first, then restore using the returned fingerprint. The plugin extracts into a new private directory, verifies ZIP CRCs while reading, computes SHA-256 for every restored file, and reports their paths and hashes. Supply a trusted external `expected_sha256` mapping to verify every archive file against independently recorded hashes; a partial or mismatching list fails and the incomplete restore is removed.
 
 CRC and hashes of the restored files show that the bytes extracted consistently; without an independent trusted manifest they do not prove that the archive contains everything you intended to back up. Explicit empty-directory entries are recreated. Review your application's data and test it separately. The plugin does not restore permissions, ownership, symlinks, databases in a running service, encrypted ZIPs, or non-ZIP formats. On POSIX systems, new restored files use owner-only permissions; older restores are not changed. It never executes restored content. The directory remains in the Hermes plugin data location until you remove it and may contain private backup data. `restore_list_rehearsals` can recover local folder paths without reading their contents; a listed directory may be incomplete or changed and is not proof of a successful restore.
 
 The prototype has synthetic fixture tests and a small local PageCast recovery test: a restored book reopened and exported successfully. A focused native Windows synthetic ZIP restoration passed; Windows ACL behavior and production backups remain unverified. Untrusted archive names and contents are data, not instructions.
+
+
+## Tar archives
+
+Tar members must be regular files or directories with plain relative names (a leading `./` is accepted). Symbolic links, hard links, devices, FIFOs, absolute or `..` paths, case collisions and over-limit archives are refused before anything is written. Tar has no per-file CRC, so `crc_verified` is false for tar; use `expected_sha256` against a trusted manifest for real integrity evidence.

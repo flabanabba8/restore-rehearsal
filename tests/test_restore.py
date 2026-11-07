@@ -2,6 +2,8 @@ import hashlib
 import importlib.util
 import os
 from pathlib import Path
+import io
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -90,6 +92,50 @@ class RestoreTests(unittest.TestCase):
         info = self.plugin.inspect(str(self.archive))
         with self.assertRaisesRegex(ValueError, 'exactly all'):
             self.plugin.rehearse(str(self.archive), info['fingerprint'], {})
+
+
+class TarTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(dir='/tmp'); self.root = Path(self.tmp.name)
+        self.plugin = core.Rehearsal(self.root / 'restore')
+    def tearDown(self): self.tmp.cleanup()
+
+    def make(self, members, mode='w:gz', name='backup.tar.gz'):
+        path = self.root / name
+        with tarfile.open(path, mode) as tf:
+            for member, data in members:
+                tf.addfile(member, io.BytesIO(data) if data is not None else None)
+        return str(path)
+
+    def regular(self, name, data=b'data'):
+        info = tarfile.TarInfo(name); info.size = len(data); info.mode = 0o644; return info, data
+
+    def test_tar_gz_is_inspected_and_restored_with_hashes(self):
+        directory = tarfile.TarInfo('proj'); directory.type = tarfile.DIRTYPE; directory.mode = 0o755
+        path = self.make([(directory, None), self.regular('proj/a.txt', b'alpha'), self.regular('./proj/b.txt', b'beta')])
+        seen = self.plugin.inspect(path)
+        self.assertEqual(seen['kind'], 'tar'); self.assertEqual(sorted(f['path'] for f in seen['files']), ['proj/a.txt', 'proj/b.txt'])
+        self.assertIsNone(seen['files'][0]['crc32'])
+        done = self.plugin.rehearse(path, seen['fingerprint'])
+        self.assertEqual(done['sha256']['proj/a.txt'], hashlib.sha256(b'alpha').hexdigest())
+        self.assertEqual(done['archive_kind'], 'tar'); self.assertFalse(done['crc_verified'])
+        self.assertEqual((Path(done['restored_path']) / 'proj' / 'b.txt').read_bytes(), b'beta')
+
+    def test_unsafe_tar_members_are_refused(self):
+        symlink = tarfile.TarInfo('proj/link'); symlink.type = tarfile.SYMTYPE; symlink.linkname = '/etc/passwd'
+        hardlink = tarfile.TarInfo('proj/hard'); hardlink.type = tarfile.LNKTYPE; hardlink.linkname = 'proj/a.txt'
+        fifo = tarfile.TarInfo('proj/pipe'); fifo.type = tarfile.FIFOTYPE
+        for bad in ([self.regular('../escape.txt')], [self.regular('/abs.txt')], [(symlink, None)], [self.regular('proj/a.txt'), (hardlink, None)], [(fifo, None)],
+                    [self.regular('proj/a.txt'), self.regular('PROJ/A.txt')]):
+            with self.assertRaises(ValueError): self.plugin.inspect(self.make(bad))
+        self.assertFalse((self.root / 'escape.txt').exists())
+
+    def test_non_archive_and_changed_archive_are_refused(self):
+        junk = self.root / 'x.tar.gz'; junk.write_bytes(b'not an archive at all')
+        with self.assertRaises(ValueError): self.plugin.inspect(str(junk))
+        path = self.make([self.regular('a.txt')]); seen = self.plugin.inspect(path)
+        self.make([self.regular('a.txt', b'different content')])
+        with self.assertRaisesRegex(ValueError, 'changed'): self.plugin.rehearse(path, seen['fingerprint'])
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,6 +1,6 @@
 name: restore-rehearsal
 version: "0.1.0"
-description: "Rehearse ZIP backup restoration in an isolated directory and verify file hashes."
+description: "Rehearse ZIP or tar backup restoration in an isolated directory and verify file hashes."
 author: "Restore Rehearsal contributors"
 license: GPL-3.0-or-later
 requires_hermes: ">=0.22.0"
