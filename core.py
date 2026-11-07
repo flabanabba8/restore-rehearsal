@@ -22,10 +22,10 @@ def digest(path):
 
 def safe_source(value):
     path = Path(value).expanduser()
-    if path.is_symlink() or any(x in PRIVATE for x in path.parts):
+    if path.is_symlink() or any(x.casefold() in PRIVATE for x in path.parts):
         raise ValueError('Private paths and symlink inputs are unsupported')
     path = path.resolve(strict=True)
-    if any(x in PRIVATE for x in path.parts) or not path.is_file():
+    if any(x.casefold() in PRIVATE for x in path.parts) or not path.is_file():
         raise ValueError('Choose a ZIP outside private configuration')
     return path
 

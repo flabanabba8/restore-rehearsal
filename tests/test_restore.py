@@ -11,6 +11,10 @@ core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 
 class RestoreTests(unittest.TestCase):
+    def test_mixed_case_private_directory_is_rejected(self):
+        folder=self.root/'.CoDeX';folder.mkdir();source=folder/'fixture.zip';source.write_bytes(b'fixture')
+        with self.assertRaises(ValueError):core.safe_source(str(source))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir='/tmp')
         self.root = Path(self.tmp.name)
